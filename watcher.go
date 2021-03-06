@@ -14,50 +14,55 @@ import (
 
 // watcher implements persist.Watcher interface
 type watcher struct {
-	nameServers []string
+	nameServers        []string
+	policyUpdatedTopic string
+
+	producerOpts []producer.Option
+	consumerOpts []consumer.Option
 
 	producer rocketmq.Producer
 	consumer rocketmq.PushConsumer
 
-	policyUpdatedTopic string
+	canPub, canSub bool
 
 	callback func(string)
 }
 
-// NewWatcher creates new Nats watcher.
-// Parameters:
-// - nameServers
-//		rocketMQ地址
-// - policyUpdatedTopic
-//      用户通知及订阅更新信息 确保rocketMQ中存在此topic或设置为自动创建topic
-// - producerOpts
-//      用于构建生产者
-//- consumerOpts
-//      用于构建消费者
-func NewWatcher(nameServers []string, policyUpdatedTopic string, producerOpts []producer.Option, consumerOpts []consumer.Option) (persist.Watcher, error) {
-	nw := &watcher{
-		policyUpdatedTopic: policyUpdatedTopic,
-		nameServers:        nameServers,
+// 默认topic:casbin-policy-updated
+func NewWatcher(opts ...Option) (persist.Watcher, error) {
+	w := &watcher{
+		policyUpdatedTopic: "casbin-policy-updated",
+		nameServers:        []string{"127.0.0.1:9876"},
 	}
 
-	err := nw.newProducer(producerOpts)
-	if err != nil {
-		return nil, err
+	for _, opt := range opts {
+		opt(w)
 	}
 
-	err = nw.newConsumer(consumerOpts)
-	if err != nil {
-		return nil, err
+	if w.producer == nil && w.canPub {
+		err := w.newProducer()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	err = nw.subscribeToUpdates()
-	if err != nil {
-		return nil, err
+	if w.consumer == nil && w.canSub {
+		err := w.newConsumer()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	runtime.SetFinalizer(nw, finalizer)
+	if w.consumer != nil {
+		err := w.subscribeToUpdates()
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	return nw, nil
+	runtime.SetFinalizer(w, finalizer)
+
+	return w, nil
 }
 
 // NewWatcher creates new Nats watcher.
@@ -72,9 +77,11 @@ func NewPublishWatcher(nameServers []string, policyUpdatedTopic string, producer
 	nw := &watcher{
 		policyUpdatedTopic: policyUpdatedTopic,
 		nameServers:        nameServers,
+		producerOpts:       producerOpts,
+		canPub:             true,
 	}
 
-	err := nw.newProducer(producerOpts)
+	err := nw.newProducer()
 	if err != nil {
 		return nil, err
 	}
@@ -96,9 +103,11 @@ func NewSubscribeWatcher(nameServers []string, policyUpdatedTopic string, consum
 	nw := &watcher{
 		policyUpdatedTopic: policyUpdatedTopic,
 		nameServers:        nameServers,
+		consumerOpts:       consumerOpts,
+		canSub:             true,
 	}
 
-	err := nw.newConsumer(consumerOpts)
+	err := nw.newConsumer()
 	if err != nil {
 		return nil, err
 	}
@@ -111,36 +120,6 @@ func NewSubscribeWatcher(nameServers []string, policyUpdatedTopic string, consum
 	runtime.SetFinalizer(nw, finalizer)
 
 	return nw, nil
-}
-
-func (w *watcher) newProducer(producerOpts []producer.Option) error {
-	if producerOpts == nil {
-		producerOpts = make([]producer.Option, 0, 1)
-	}
-	producerOpts = append(producerOpts, producer.WithNameServer(w.nameServers))
-	mqProducer, err := producer.NewDefaultProducer(producerOpts...)
-	if err != nil {
-		return err
-	}
-	w.producer = mqProducer
-	err = w.producer.Start()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (w *watcher) newConsumer(consumerOpts []consumer.Option) error {
-	if consumerOpts == nil {
-		consumerOpts = make([]consumer.Option, 0, 1)
-	}
-	consumerOpts = append(consumerOpts, consumer.WithNameServer(w.nameServers))
-	mqConsumer, err := consumer.NewPushConsumer(consumerOpts...)
-	if err != nil {
-		return err
-	}
-	w.consumer = mqConsumer
-	return nil
 }
 
 // SetUpdateCallback sets the callback function that the watcher will call
@@ -175,6 +154,36 @@ func (w *watcher) Update() error {
 // Close stops and releases the watcher, the callback function will not be called any more.
 func (w *watcher) Close() {
 	finalizer(w)
+}
+
+func (w *watcher) newProducer() error {
+	producerOpts := w.producerOpts
+	if len(w.nameServers) != 0 {
+		producerOpts = append(producerOpts, producer.WithNameServer(w.nameServers))
+	}
+	mqProducer, err := producer.NewDefaultProducer(producerOpts...)
+	if err != nil {
+		return err
+	}
+	w.producer = mqProducer
+	err = w.producer.Start()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *watcher) newConsumer() error {
+	consumerOpts := w.consumerOpts
+	if len(w.nameServers) != 0 {
+		consumerOpts = append(consumerOpts, consumer.WithNameServer(w.nameServers))
+	}
+	mqConsumer, err := consumer.NewPushConsumer(consumerOpts...)
+	if err != nil {
+		return err
+	}
+	w.consumer = mqConsumer
+	return nil
 }
 
 func (w *watcher) subscribeToUpdates() error {
