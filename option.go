@@ -12,6 +12,8 @@ type Option func(*watcher)
 func WithNameServers(nameServers ...string) Option {
 	return func(w *watcher) {
 		w.nameServers = nameServers
+		w.canSub = true
+		w.canPub = true
 	}
 }
 
