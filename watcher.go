@@ -157,10 +157,11 @@ func (w *watcher) Close() {
 }
 
 func (w *watcher) newProducer() error {
-	producerOpts := w.producerOpts
+	var producerOpts []producer.Option
 	if len(w.nameServers) != 0 {
 		producerOpts = append(producerOpts, producer.WithNameServer(w.nameServers))
 	}
+	producerOpts = append(producerOpts, w.producerOpts...)
 	mqProducer, err := producer.NewDefaultProducer(producerOpts...)
 	if err != nil {
 		return err
@@ -174,10 +175,11 @@ func (w *watcher) newProducer() error {
 }
 
 func (w *watcher) newConsumer() error {
-	consumerOpts := w.consumerOpts
+	var consumerOpts []consumer.Option
 	if len(w.nameServers) != 0 {
 		consumerOpts = append(consumerOpts, consumer.WithNameServer(w.nameServers))
 	}
+	consumerOpts = append(consumerOpts, w.consumerOpts...)
 	mqConsumer, err := consumer.NewPushConsumer(consumerOpts...)
 	if err != nil {
 		return err
