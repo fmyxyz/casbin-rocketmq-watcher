@@ -4,6 +4,7 @@ import (
 	"github.com/apache/rocketmq-client-go/v2"
 	"github.com/apache/rocketmq-client-go/v2/consumer"
 	"github.com/apache/rocketmq-client-go/v2/producer"
+	"time"
 )
 
 type Option func(*watcher)
@@ -37,6 +38,13 @@ func WithConsumer(c rocketmq.PushConsumer) Option {
 	return func(w *watcher) {
 		w.consumer = c
 		w.canSub = true
+	}
+}
+
+// 使用此项则 WithConsumerOpts 无效
+func WithTrigger(t time.Duration) Option {
+	return func(w *watcher) {
+		w.triggerTime = t
 	}
 }
 
