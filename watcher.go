@@ -80,7 +80,7 @@ func NewWatcher(opts ...Option) (persist.Watcher, error) {
 func (w *watcher) ticker() {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Println("watch ticker : panic ", e)
+			fmt.Println("watcher ticker : panic ", e)
 		}
 	}()
 	m := make(map[string]struct{})
@@ -90,7 +90,7 @@ func (w *watcher) ticker() {
 		case <-ticker.C:
 			if w.callback != nil {
 				for k := range m {
-					fmt.Println("Subscribe trigger:", k)
+					fmt.Println("Subscribe trigger ", k)
 					w.callback(k)
 					delete(m, k)
 				}
