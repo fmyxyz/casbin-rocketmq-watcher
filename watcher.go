@@ -10,6 +10,7 @@ import (
 	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/casbin/casbin/v2/persist"
 	"runtime"
+	"time"
 )
 
 // watcher implements persist.Watcher interface
@@ -26,13 +27,22 @@ type watcher struct {
 	canPub, canSub bool
 
 	callback func(string)
+
+	triggerTime  time.Duration // callback触发周期 最少1s，默认1s
+	callbackChan chan string
 }
+
+const (
+	callbackChanLen = 100
+)
 
 // 默认topic:casbin-policy-updated
 func NewWatcher(opts ...Option) (persist.Watcher, error) {
 	w := &watcher{
 		policyUpdatedTopic: "casbin-policy-updated",
 		nameServers:        []string{"127.0.0.1:9876"},
+		triggerTime:        time.Second, //默认1s
+		callbackChan:       make(chan string, callbackChanLen),
 	}
 
 	for _, opt := range opts {
@@ -62,7 +72,36 @@ func NewWatcher(opts ...Option) (persist.Watcher, error) {
 
 	runtime.SetFinalizer(w, finalizer)
 
+	go w.ticker()
+
 	return w, nil
+}
+
+func (w *watcher) ticker() {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Println("watch ticker : panic ", e)
+		}
+	}()
+	m := make(map[string]struct{})
+	ticker := time.NewTicker(w.triggerTime)
+	for {
+		select {
+		case <-ticker.C:
+			if w.callback != nil {
+				for k := range m {
+					fmt.Println("Subscribe trigger:", k)
+					w.callback(k)
+					delete(m, k)
+				}
+			}
+		case data, ok := <-w.callbackChan:
+			if !ok {
+				return
+			}
+			m[data] = struct{}{}
+		}
+	}
 }
 
 // NewWatcher creates new Nats watcher.
@@ -191,10 +230,12 @@ func (w *watcher) newConsumer() error {
 func (w *watcher) subscribeToUpdates() error {
 	err := w.consumer.Subscribe(w.policyUpdatedTopic, consumer.MessageSelector{}, func(ctx context.Context, ext ...*primitive.MessageExt) (consumer.ConsumeResult, error) {
 		fmt.Println("Subscribe rocketmq Message ID:", ext[0].MsgId)
+
 		// 更新
-		if w.callback != nil {
-			w.callback(string(ext[0].Body))
-		}
+		w.callbackChan <- string(ext[0].Body)
+		//if w.callback != nil {
+		//	w.callback(string(ext[0].Body))
+		//}
 
 		return consumer.ConsumeSuccess, nil
 	})
