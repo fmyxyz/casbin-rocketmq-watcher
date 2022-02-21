@@ -174,7 +174,7 @@ func (w *watcher) SetUpdateCallback(callback func(string)) error {
 // Enforcer.AddPolicy(), Enforcer.RemovePolicy(), etc.
 func (w *watcher) Update() error {
 	if w.producer != nil {
-		mqMsg := primitive.NewMessage(w.policyUpdatedTopic, []byte(""))
+		mqMsg := primitive.NewMessage(w.policyUpdatedTopic, []byte("{}"))
 
 		syncResult, err := w.producer.SendSync(context.Background(), mqMsg)
 		if err != nil {
